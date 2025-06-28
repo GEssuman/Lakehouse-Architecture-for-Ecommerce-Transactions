@@ -1,0 +1,12 @@
+services:
+
+  glue:
+      image: public.ecr.aws/glue/aws-glue-libs:5
+      container_name: glue-local-ec
+      volumes:
+        - ./glue-scripts:/home/glue/scripts
+        - ./glue-libs:/opt/glue/libs
+      env_file:
+        - ./.env
+      working_dir: /home/glue/scripts
+      stdin_open: true
