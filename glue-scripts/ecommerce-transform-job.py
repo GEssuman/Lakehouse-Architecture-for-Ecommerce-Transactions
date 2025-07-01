@@ -122,7 +122,7 @@ try:
 
     # Copy the object
     s3.copy_object(
-        Bucket="ecommerce-archive.amalitch-gke ",
+        Bucket="ecommerce-archive.amalitch-gke",
         CopySource={'Bucket': input_bucket, 'Key': input_key},
         Key=archive_key
     )
