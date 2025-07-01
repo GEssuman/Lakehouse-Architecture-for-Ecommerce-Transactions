@@ -1,0 +1,73 @@
+name: Deploy Glue Job
+
+on:
+  push:
+    paths:
+      - 'glue-scripts/ecommerce-transform-job.py'
+
+jobs:
+  deploy-glue-job:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+
+    - name: Upload script to S3
+      run: |
+        aws s3 cp glue-scripts/ecommerce-transform-job.py s3://aws-glue-assets-309797288544-eu-north-1/scripts/ecommerce-transform-job.py
+
+    - name: Create or update Glue Job
+      run: |
+        JOB_NAME="ecommerce-transform-job"
+        SCRIPT_LOCATION="s3://aws-glue-assets-309797288544-eu-north-1/scripts/ecommerce-transform-job.py"
+        GLUE_ROLE="arn:aws:iam::309797288544:role/AWSGlueServiceRole-MusicETLJob"
+        TEMP_DIR="s3://aws-glue-assets-309797288544-eu-north-1/temp/"
+        JAR_PATHS="s3://ecommerce-glue-libs.amalitech-gke/commons-collections4-4.4.jar,s3://ecommerce-glue-libs.amalitech-gke/commons-compress-1.21.jar,s3://ecommerce-glue-libs.amalitech-gke/ooxml-schemas-1.4.jar,s3://ecommerce-glue-libs.amalitech-gke/poi-5.2.3.jar,s3://ecommerce-glue-libs.amalitech-gke/poi-ooxml-5.2.3.jar,s3://ecommerce-glue-libs.amalitech-gke/spark-excel_2.12-0.13.7.jar,s3://ecommerce-glue-libs.amalitech-gke/xmlbeans-3.1.0.jar"
+
+        aws glue get-job --job-name $JOB_NAME || \
+        aws glue create-job \
+          --name $JOB_NAME \
+          --role "$GLUE_ROLE" \
+          --command "{\"Name\":\"glueetl\",\"ScriptLocation\":\"$SCRIPT_LOCATION\",\"PythonVersion\":\"3\"}" \
+          --default-arguments "{
+            \"--job-language\":\"python\",
+            \"--datalake-formats\":\"delta\",
+            \"--enable-continuous-cloudwatch-log\":\"true\",
+            \"--enable-glue-datacatalog\":\"true\",
+            \"--TempDir\":\"$TEMP_DIR\",
+            \"--conf\":\"spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog\",
+            \"--extra-jars\":\"$JAR_PATHS\"
+          }" \
+          --glue-version "4.0" \
+          --number-of-workers 2 \
+          --worker-type G.1X || \
+        aws glue update-job \
+          --job-name $JOB_NAME \
+          --job-update "{
+            \"Role\": \"$GLUE_ROLE\",
+            \"Command\": {
+              \"Name\": \"glueetl\",
+              \"ScriptLocation\": \"$SCRIPT_LOCATION\",
+              \"PythonVersion\": \"3\"
+            },
+            \"DefaultArguments\": {
+              \"--job-language\": \"python\",
+              \"--datalake-formats\": \"delta\",
+              \"--enable-continuous-cloudwatch-log\": \"true\",
+              \"--enable-glue-datacatalog\": \"true\",
+              \"--TempDir\": \"$TEMP_DIR\",
+              \"--conf\": \"spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog\",
+              \"--extra-jars\": \"$JAR_PATHS\"
+            },
+            \"GlueVersion\": \"4.0\",
+            \"NumberOfWorkers\": 2,
+            \"WorkerType\": \"G.1X\"
+          }"
