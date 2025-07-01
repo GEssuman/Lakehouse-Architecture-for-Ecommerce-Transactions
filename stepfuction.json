@@ -1,0 +1,84 @@
+{
+  "Comment": "Trigger Glue job and Crawler with Lambda input and run Athena queries in parallel",
+  "StartAt": "Glue StartJobRun",
+  "States": {
+    "Glue StartJobRun": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "ecommerce-transform-job",
+        "Arguments": {
+          "--JOB_NAME": "ecommerce-transform-job",
+          "--bucket.$": "$.bucket",
+          "--key.$": "$.key"
+        }
+      },
+      "Next": "StartCrawler"
+    },
+    "StartCrawler": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:glue:startCrawler",
+      "Parameters": {
+        "Name": "ecoomercerDeltaCrawler"
+      },
+      "Next": "RunAthenaQueries"
+    },
+    "RunAthenaQueries": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "QueryTopUsers",
+          "States": {
+            "QueryTopUsers": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::athena:startQueryExecution",
+              "Parameters": {
+                "QueryString": "SELECT user_id, COUNT(order_id) AS total_orders, SUM(total_amount) AS total_spent FROM orders GROUP BY user_id ORDER BY total_spent DESC LIMIT 10;",
+                "WorkGroup": "primary",
+                "ResultConfiguration": {
+                  "OutputLocation": "s3://aws-athena-queries-gke/music-stream-queries/"
+                }
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "QueryReorderedProducts",
+          "States": {
+            "QueryReorderedProducts": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::athena:startQueryExecution",
+              "Parameters": {
+                "QueryString": "SELECT p.product_name, COUNT(oi.reordered) AS reorder_count FROM order_items oi JOIN products p ON p.product_id = oi.product_id WHERE oi.reordered = TRUE GROUP BY p.product_name ORDER BY reorder_count DESC LIMIT 10;",
+                "WorkGroup": "primary",
+                "ResultConfiguration": {
+                  "OutputLocation": "s3://aws-athena-queries-gke/music-stream-queries/"
+                }
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "QueryOrdersByDepartment",
+          "States": {
+            "QueryOrdersByDepartment": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::athena:startQueryExecution",
+              "Parameters": {
+                "QueryString": "SELECT d.department_id, d.department, COUNT(DISTINCT o.order_id) AS total_orders FROM order_items oi JOIN products p ON p.product_id = oi.product_id JOIN departments d ON d.department_id = p.department_id JOIN orders o ON o.order_id = oi.order_id GROUP BY d.department_id, d.department ORDER BY total_orders DESC;",
+                "WorkGroup": "primary",
+                "ResultConfiguration": {
+                  "OutputLocation": "s3://aws-athena-queries-gke/music-stream-queries/"
+                }
+              },
+              "End": true
+            }
+          }
+        }
+      ],
+      "End": true
+    }
+  }
+}
